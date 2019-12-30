@@ -18,7 +18,7 @@ unique_id_list = np.random.randint(0,10000,len(gpu_id_list)) #TODO: make truely 
 #[i//2 for i in range(8*2)]  # 2 workers on each GPU
 
 animal = 'ST264'
-dayN = 3
+dayN = 2
 day_name = 'Day{}'.format(dayN)
 path2data = '/home/nina/VRData/Processing/pkls'
 
@@ -67,6 +67,10 @@ def worker(n1,n2):
 		with open(out_dir+'_model_list.txt','a') as f:
 			f.write("{}-{} {}\t{:.0f}\t{}\n".format(n1,n2,utils.get_copula_name_string(likelihoods),waic,int(t_end-t_start)))
 
+		with open('{}_{}_models.pkl'.format(out_dir,unique_id),'rb') as f:
+			results = pkl.load(f)  
+
+		assert (results[beh+n1,beh+n2]==None)
 		results[beh+n1,beh+n2] = [likelihoods,utils.get_copula_name_string(likelihoods),waic,int(t_end-t_start)]
 
 		with open('{}_{}_models.pkl'.format(out_dir,unique_id),'wb') as f:
@@ -80,8 +84,11 @@ if __name__ == '__main__':
 
     pool = multiprocessing.Pool(len(gpu_id_list))
 
+#    res = pool.apply_async(worker, (3,31,))
+
     for n1 in range(-beh,NN-1):
         for n2 in range(n1+1,NN):
+            #if (n1>-5) | (n2>-2):
             res = pool.apply_async(worker, (n1,n2,))
     pool.close()
     pool.join()  # block at this line until all processes are done

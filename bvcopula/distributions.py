@@ -182,8 +182,9 @@ class GaussianCopula(SingleParamCopulaBase):
             nrvs = normal.Normal(0,1).icdf(value)
         
         mask_theta = (thetas < 1.) & (thetas > -1.)
-        mask_samples = (value[..., 0] > 0.) & (value[..., 1] > 0.) & \
-                (value[..., 0] < 1.) & (value[..., 1] < 1.)
+        m = 1e-6
+        mask_samples = (value[..., 0] > m) & (value[..., 1] > m) & \
+                (value[..., 0] < 1.-m) & (value[..., 1] < 1.-m)
         mask = mask_theta & mask_samples
 
         log_prob[..., mask] = (2 * thetas * nrvs[..., 0] * nrvs[..., 1] - thetas**2 \
@@ -356,10 +357,10 @@ class GumbelCopula(SingleParamCopulaBase):
 
         h4 = -value[...,0].log()
         h5 = -value[...,1].log()
-        h6 = torch.pow(h4, self.theta) + torch.pow(h5, self.theta)
+        h6 = (torch.pow(h4, self.theta) + torch.pow(h5, self.theta))
         h7 = torch.pow(h6, h3)
 
-        log_prob = -h7+h4+h5 + h1*h4.log() + h1 * h5.log() + h2 * h6.log() + (h1+h7).log()
+        log_prob = -h7+h4+h5 + h1*h4.log() + h1 * h5.log() + h2 * h6.log().clamp(-1e38,float("Inf")) + (h1+h7).log()
 
         # # now put everything out of range to -inf (which was most likely Nan otherwise)
         log_prob[..., (value[..., 0] <= 0) | (value[..., 1] <= 0) |
@@ -469,7 +470,9 @@ class StudentTCopula(SingleParamCopulaBase):
                 (value[..., 0] >= 1) | (value[..., 1] >= 1)] = -float("Inf") 
 
         assert torch.all(log_prob==log_prob)
-        assert torch.all(log_prob!=float("Inf"))
+        #assert torch.all(log_prob!=float("Inf"))
+        print(value_[log_prob!=float("Inf")])
+        print(self.theta[log_prob!=float("Inf")])
         
         return log_prob
 
@@ -586,11 +589,12 @@ class MixtureCopula(Distribution):
         
         for i, c in enumerate(self.copulas):
             if c.num_thetas == 0:
-                add = c(self.theta[self.theta!=self.theta]).log_prob(value)+self.mix[i].log()
+                add = c(self.theta[self.theta!=self.theta]).log_prob(value)
             else:
-                add = c(self.theta[i], rotation=self.rotations[i]).log_prob(value,safe=safe).clamp(-100.,88.)+self.mix[i].log()
+                add = c(self.theta[i], rotation=self.rotations[i]).log_prob(value,safe=safe).clamp(-100.,88.)
                 #-100 to 88 is a range of x such that torch.exp(x).log()!=+-inf
-            prob += torch.exp(add)
+            #print(add.min(),add.max(),self.mix[i])
+            prob += self.mix[i]*torch.exp(add)
             #TODO is it possible to vectorize this part?
         log_prob = prob.log()
     
