@@ -4,6 +4,7 @@ from typing import Any
 from gpytorch.likelihoods.likelihood import Likelihood
 from gpytorch.distributions import MultivariateNormal, base_distributions
 from gpytorch.utils.deprecation import _deprecate_kwarg_with_transform
+from gpytorch.settings import num_gauss_hermite_locs
 from torch.distributions.transformed_distribution import TransformedDistribution #for Flow
 
 from .distributions import IndependenceCopula, GaussianCopula, FrankCopula, ClaytonCopula, GumbelCopula, StudentTCopula, MixtureCopula
@@ -234,14 +235,12 @@ class MixtureCopula_Likelihood(Likelihood):
             `FI` (Fisher information)
             `MI` (Mutual information)
         '''
-        copulas = [lik.copula for lik in self.likelihoods]
-        rotations = [lik.rotation for lik in self.likelihoods]
 
         with torch.no_grad():
-            f_samples = gp_distr.rsample(torch.Size([self.waic_samples]))
-            thetas, mixes = self.gplink_function(f_samples)
-            log_prob = self.copula(thetas,mixes,copulas,rotations=rotations).\
-                    log_prob(target).detach()
+            samples_shape = torch.Size([self.waic_samples])
+            f_samples = gp_distr.rsample(samples_shape)
+            target = target.expand(samples_shape+target.shape)
+            log_prob = self.get_copula(f_samples).log_prob(target).detach()
             pwaic = torch.var(log_prob,dim=0).sum()
             sum_prob = torch.exp(log_prob).sum(dim=0)
             N = torch.ones_like(pwaic)*self.waic_samples
@@ -253,15 +252,11 @@ class MixtureCopula_Likelihood(Likelihood):
         else:
             return lpd,pwaic
 
-    def _get_copula(self, f, sample_size):
+    def get_copula(self, f):
         '''
-            TODO: write docstr
+        Returns a copula given the GP sample
         '''
         thetas, mixes = self.gplink_function(f)
-        thetas = thetas.expand(sample_size+thetas.shape)
-        mixes = mixes.expand(sample_size+mixes.shape)
-        thetas = torch.einsum('ijk->jki', thetas) # now: [copulas, positions, samples]
-        mixes = torch.einsum('ijk->jki', mixes)
         copulas = [lik.copula for lik in self.likelihoods]
         rotations = [lik.rotation for lik in self.likelihoods]
         return self.copula(thetas,mixes,copulas,rotations=rotations)
@@ -304,12 +299,8 @@ class MixtureCopula_Likelihood(Likelihood):
 
         with torch.no_grad():
             if ignore_GP_uncertainty:
-                thetas, mixes = self.gplink_function(model(points).mean)
-                thetas = thetas.expand(samples.shape[:1]+thetas.shape)
-                mixes = mixes.expand(samples.shape[:1]+mixes.shape)
-                thetas = torch.einsum('ijk->jki', thetas) # now: [copulas, positions, samples]
-                mixes = torch.einsum('ijk->jki', mixes)
-                logprob = model.likelihood.copula(thetas,mixes,copulas,rotations=rotations).log_prob(samples)
+                copula = self.get_copula(model(points).mean)
+                logprob = copula.log_prob(samples)
             else:
                 for i in range(n+1): #if GPU memory allows, can parallelize this cycle as well
                     points = torch.ones_like(samples[...,0])*(i/n)
@@ -335,7 +326,9 @@ class MixtureCopula_Likelihood(Likelihood):
             MI = MIs.sum()     
         return FI, MI                        
 
-    def expected_log_prob(self, target: Tensor, input: MultivariateNormal, weights=None, particles=torch.Size([0]), *params: Any, **kwargs: Any) -> Tensor:
+    def expected_log_prob(self, target: Tensor, input: MultivariateNormal, 
+        weights=None, particles=torch.Size([0]),
+        gh_locs=20, *params: Any, **kwargs: Any) -> Tensor:
         """
         Computes the expected log likelihood (used for variational inference):
         .. math::
@@ -371,7 +364,9 @@ class MixtureCopula_Likelihood(Likelihood):
                 logprob = self.forward(function_samples).log_prob(target, safe=True)
                 #print(logprob.min(),logprob.max(),logprob.mean(),logprob.std())
                 return logprob
-            log_prob = self.quadrature(log_prob_lambda, input)
+            target = target.expand(torch.Size([gh_locs]) + target.shape)
+            with num_gauss_hermite_locs(gh_locs):
+                log_prob = self.quadrature(log_prob_lambda, input)
             if weights is not None:
                 log_prob *= weights
             #print(log_prob.min(),log_prob.max(),log_prob.mean())
