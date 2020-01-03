@@ -17,7 +17,7 @@ gpu_id_list = range(2)
 unique_id_list = np.random.randint(0,10000,len(gpu_id_list)) #TODO: make truely unique
 #[i//2 for i in range(8*2)]  # 2 workers on each GPU
 
-animal = 'ST264'
+animal = 'ST262'
 dayN = 3
 day_name = 'Day{}'.format(dayN)
 path2data = '/home/nina/VRData/Processing/pkls'
@@ -30,7 +30,7 @@ try:
 except FileExistsError as error:
 	print(error)
 
-NN = 34 #number of neurons
+NN = 61 #number of neurons
 beh = 5
 
 def warn_with_traceback(message, category, filename, lineno, file=None, line=None):
@@ -68,9 +68,7 @@ def worker(n1,n2):
 			f.write("{}-{} {}\t{:.0f}\t{}\n".format(n1,n2,utils.get_copula_name_string(likelihoods),waic,int(t_end-t_start)))
 		
 		results_file = f"{out_dir}_{unique_id}_models.pkl"
-		try:
-			os.path.exists(results_file)
-		except FileExistsError as error:
+		if os.path.exists(results_file):
 			with open(results_file,'rb') as f:
 				results = pkl.load(f)  
 

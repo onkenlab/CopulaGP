@@ -509,7 +509,8 @@ class MixtureCopula(Distribution):
 
     def entropy(self, alpha=0.05, sem_tol=1e-3, mc_size=10000):
         '''
-        Estimates the entropy of the mixture of copulas.
+        Estimates the entropy of the mixture of copulas 
+        with the Robbins-Monro algorithm.
         Parameters
         ----------
         alpha : float, optional
@@ -522,30 +523,30 @@ class MixtureCopula(Distribution):
         Returns
         -------
         ent : float
-            Estimate of the mixed vine entropy in bits.
+            Estimate of the entropy in bits.
         sem : float
-            Standard error of the mixed vine entropy estimate in bits.
+            Standard error of the entropy estimate in bits.
         '''
 
         # Gaussian confidence interval for sem_tol and level alpha
         conf = torch.erfinv(torch.tensor([1. - alpha]))
-        sem = torch.ones(self.theta.shape[-1])*float('inf')
-        ent = torch.zeros(self.theta.shape[-1]) #theta here must have dims: copula x batch
-        var_sum = torch.zeros(self.theta.shape[-1])
+        batch_shape = self.batch_shape[1:] #first dm is number of copulas, discard it
+        sem = torch.ones(batch_shape)*float('inf')
+        ent = torch.zeros(batch_shape) #theta here must have dims: copula x batch dims
+        var_sum = torch.zeros(batch_shape)
         log2 = torch.tensor([2.]).log()
         k = 0
         with torch.no_grad():
             while torch.any(sem >= sem_tol):
                 # Generate samples
                 samples = self.rsample(sample_shape = torch.Size([mc_size]))
-                assert samples.dim()==3 # [conditioning_variable, samples, 2]
-                logp = self.log_prob(samples)
+                logp = self.log_prob(samples) # [sample dim, batch dims]
                 assert torch.all(logp==logp)
                 assert torch.all(logp.abs()!=float("inf")) #otherwise make masked tensor below
                 log2p = logp / log2 #maybe should check for inf 2 lines earlier
                 k += 1
                 # Monte-Carlo estimate of entropy
-                ent += (-log2p.mean(dim=0) - ent) / k
+                ent += (-log2p.mean(dim=0) - ent) / k # mean over samples dimension
                 # Estimate standard error
                 var_sum += ((-log2p - ent) ** 2).sum(dim=0)
                 sem = conf * (var_sum / (k * mc_size * (k * mc_size - 1))).pow(.5)

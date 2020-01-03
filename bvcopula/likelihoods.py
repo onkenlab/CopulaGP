@@ -238,7 +238,8 @@ class MixtureCopula_Likelihood(Likelihood):
 
         with torch.no_grad():
             samples_shape = torch.Size([self.waic_samples])
-            f_samples = gp_distr.rsample(samples_shape)
+            f_samples = gp_distr.rsample(samples_shape) # [sample shape x GP variables x batch_shape (diff positions)]
+            # from GP perspective it is [sample x batch x event] dims
             target = target.expand(samples_shape+target.shape)
             log_prob = self.get_copula(f_samples).log_prob(target).detach()
             pwaic = torch.var(log_prob,dim=0).sum()
@@ -281,50 +282,51 @@ class MixtureCopula_Likelihood(Likelihood):
             `FI` (Fisher information)
             `MI` (Mutual information)
         '''
-        ds = length/n
-        logprob = torch.empty([n+1,samples.shape[0]])
-        if ignore_GP_uncertainty:
-            points = torch.arange(n+1).float()/n
+        pass
+        # ds = length/n
+        # logprob = torch.empty([n+1,samples.shape[0]])
+        # if ignore_GP_uncertainty:
+        #     points = torch.arange(n+1).float()/n
 
-        if samples.is_cuda:
-            get_cuda_device = samples.get_device()
-            logprob = logprob.cuda(device=get_cuda_device)
-            if ignore_GP_uncertainty:
-                points = points.cuda(device=get_cuda_device)
+        # if samples.is_cuda:
+        #     get_cuda_device = samples.get_device()
+        #     logprob = logprob.cuda(device=get_cuda_device)
+        #     if ignore_GP_uncertainty:
+        #         points = points.cuda(device=get_cuda_device)
 
-        assert(model.likelihood.likelihoods==self.likelihoods) #check that it is actually a parent model
+        # assert(model.likelihood.likelihoods==self.likelihoods) #check that it is actually a parent model
 
-        copulas = [lik.copula for lik in self.likelihoods]
-        rotations = [lik.rotation for lik in self.likelihoods]
+        # copulas = [lik.copula for lik in self.likelihoods]
+        # rotations = [lik.rotation for lik in self.likelihoods]
 
-        with torch.no_grad():
-            if ignore_GP_uncertainty:
-                copula = self.get_copula(model(points).mean)
-                logprob = copula.log_prob(samples)
-            else:
-                for i in range(n+1): #if GPU memory allows, can parallelize this cycle as well
-                    points = torch.ones_like(samples[...,0])*(i/n)
-                    functions = model(points)
-                    log_prob_lambda = lambda function_samples: model.likelihood.forward(function_samples).log_prob(samples)
-                    logprob[i] = model.likelihood.quadrature(log_prob_lambda, functions) 
+        # with torch.no_grad():
+        #     if ignore_GP_uncertainty:
+        #         copula = self.get_copula(model(points).mean)
+        #         logprob = copula.log_prob(samples)
+        #     else:
+        #         for i in range(n+1): #if GPU memory allows, can parallelize this cycle as well
+        #             points = torch.ones_like(samples[...,0])*(i/n)
+        #             functions = model(points)
+        #             log_prob_lambda = lambda function_samples: model.likelihood.forward(function_samples).log_prob(samples)
+        #             logprob[i] = model.likelihood.quadrature(log_prob_lambda, functions) 
                     
-            #calculate FI
-            FI = torch.empty_like(logprob[...,0])
-            FI[0] = ((logprob[0].exp())*((logprob[1]-logprob[0])/(ds/2)).pow(2)).sum()
-            FI[n] = ((logprob[n].exp())*((logprob[n]-logprob[n-1])/(ds/2)).pow(2)).sum()
-            for i in range(1,n):
-                FI[i] = ((logprob[i].exp())*((logprob[i+1]-logprob[i-1])/ds).pow(2)).sum()
+        #     #calculate FI
+        #     FI = torch.empty_like(logprob[...,0])
+        #     FI[0] = ((logprob[0].exp())*((logprob[1]-logprob[0])/(ds/2)).pow(2)).sum()
+        #     FI[n] = ((logprob[n].exp())*((logprob[n]-logprob[n-1])/(ds/2)).pow(2)).sum()
+        #     for i in range(1,n):
+        #         FI[i] = ((logprob[i].exp())*((logprob[i+1]-logprob[i-1])/ds).pow(2)).sum()
                 
-            #now calculate MI    
-            # P(r) = integral P(r|s) P(s) ds
-            Pr = torch.zeros(samples.shape[0]).cuda(device=get_cuda_device)
-            for i in range(n+1):
-                Pr += logprob[i].exp().detach()*(1/(n+1))
-            MIs=0
-            for i in range(n+1):    
-                MIs+= 1/(n+1)*logprob[i].exp()*(logprob[i]-Pr.log()) # sum p(r|s) * log p(r|s)/p(r)
-            MI = MIs.sum()     
-        return FI, MI                        
+        #     #now calculate MI    
+        #     # P(r) = integral P(r|s) P(s) ds
+        #     Pr = torch.zeros(samples.shape[0]).cuda(device=get_cuda_device)
+        #     for i in range(n+1):
+        #         Pr += logprob[i].exp().detach()*(1/(n+1))
+        #     MIs=0
+        #     for i in range(n+1):    
+        #         MIs+= 1/(n+1)*logprob[i].exp()*(logprob[i]-Pr.log()) # sum p(r|s) * log p(r|s)/p(r)
+        #     MI = MIs.sum()     
+        # return FI, MI                        
 
     def expected_log_prob(self, target: Tensor, input: MultivariateNormal, 
         weights=None, particles=torch.Size([0]),
@@ -382,10 +384,14 @@ class MixtureCopula_Likelihood(Likelihood):
         """
         num_copulas = len(self.likelihoods)
         num_indep_thetas = self.theta_sharing.max() + 1
+        # f dimensions are [f_samples dim x GP variables dim x theta dim]
+        # theta dimensions will be [copulas dim x f samples dim x theta dim], where
+        # f samples dim is essentially an extra batch dimension
+        # note that f samples dim may be empty
         assert num_copulas + num_indep_thetas - 1==f.shape[-2] #independent thetas + mixing concentrations - 1 (dependent)
+        # WARNING: we assume here that there is 1 theta dim. Need to rethink it if there will be multiparametric copulas. 
 
         lr_ratio = .5 # lr_mix / lr_thetas
-        #.5 works well for MCMC, .25 for GH
 
         thetas, mix = [], []
         prob_rem = torch.ones_like(f[...,0,:]) #1-x1, x1(1-x2), x1x2(1-x3)...
