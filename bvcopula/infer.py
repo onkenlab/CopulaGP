@@ -38,7 +38,7 @@ def _get_theta_sharing(likelihoods, theta_sharing):
 	return theta_sharing, num_fs
 
 def _grid_size(num_copulas):
-	if num_copulas<4:
+	if num_copulas<8:
 		grid_size = conf.grid_size
 	else:
 		grid_size = int(conf.grid_size/(num_copulas/2))
@@ -50,9 +50,9 @@ def infer(likelihoods, train_x: Tensor, train_y: Tensor, device: torch.device,
 
 	theta_sharing, num_fs = _get_theta_sharing(likelihoods, theta_sharing)
 
-	if device!=torch.device('cpu'):
-		with torch.cuda.device(device):
-			torch.cuda.empty_cache()
+	#if device!=torch.device('cpu'):
+	#	with torch.cuda.device(device):
+	#		torch.cuda.empty_cache()
 
 	logging.info('Trying {}'.format(utils.get_copula_name_string(likelihoods)))
 
@@ -75,8 +75,9 @@ def infer(likelihoods, train_x: Tensor, train_y: Tensor, device: torch.device,
 	mll = utils.VariationalELBO(model.likelihood, model, torch.ones_like(train_x.squeeze()), 
                             num_data=train_y.size(0), particles=torch.Size([0]), combine_terms=True)
 
-	losses, rbf, means = [], [], []
-
+	losses = torch.zeros(conf.max_num_iter, device=device)
+	rbf = torch.zeros(conf.max_num_iter, device=device)
+	means = torch.zeros(conf.max_num_iter, device=device)
 	nans_detected = 0
 	WAIC = 1 #assume that the model will train well
 	
@@ -91,13 +92,13 @@ def infer(likelihoods, train_x: Tensor, train_y: Tensor, device: torch.device,
 	        
 	        loss = -mll(output, train_y)  
 	 
-	        losses.append(loss.detach().cpu().numpy())
-	        rbf.append(model.covar_module.base_kernel.lengthscale.detach().cpu().numpy())
-	        means.append(model.variational_strategy.variational_distribution.variational_mean\
-	        		.detach().cpu().numpy())
+	        losses[i] = loss.item()
+	        #rbf[i] = model.covar_module.base_kernel.lengthscale.detach()
+	        #means[i] = model.variational_strategy.variational_distribution.variational_mean\
+	        #		.detach()
 
 	        if len(losses)>100: 
-	            p += np.abs(np.mean(losses[-50:]) - np.mean(losses[-100:-50]))
+	            p += torch.abs(torch.mean(losses[i-50:i+1]) - torch.mean(losses[i-100:i-50]))
 
 	        if not (i + 1) % conf.iter_print:
 	            
@@ -105,7 +106,7 @@ def infer(likelihoods, train_x: Tensor, train_y: Tensor, device: torch.device,
 
 	            if (0 < mean_p < conf.loss_tol2check_waic):
 	                WAIC = model.likelihood.WAIC(model(train_x),train_y)
-	                if (WAIC < 0):
+	                if (WAIC < train_x.shape[0]*conf.min_waic):
 	                    logging.debug("Training does not look promissing!")
 	                    break	
 
@@ -118,7 +119,7 @@ def infer(likelihoods, train_x: Tensor, train_y: Tensor, device: torch.device,
 	        loss.backward()
 	        covar_grad = model.variational_strategy.variational_distribution.chol_variational_covar.grad
 	        # strict
-	        # assert torch.all(covar_grad==covar_grad)
+	        #assert torch.all(covar_grad==covar_grad)
 	        #light
 	        if torch.any(covar_grad!=covar_grad):
 	            for n, par in model.named_parameters():
@@ -144,7 +145,7 @@ def infer(likelihoods, train_x: Tensor, train_y: Tensor, device: torch.device,
 
 	if output_loss is not None:
 		assert isinstance(output_loss, str)
-		plot_loss(output_loss, losses, rbf, means)
+		plot_loss(output_loss, losses.cpu().numpy(), rbf.cpu().numpy(), means.cpu().numpy())
 
 	if (WAIC > 0):
 		WAIC = model.likelihood.WAIC(model(train_x),train_y)
@@ -152,9 +153,9 @@ def infer(likelihoods, train_x: Tensor, train_y: Tensor, device: torch.device,
 	t2 = time.time()
 	logging.info('WAIC={:.0f}, took {} sec'.format(WAIC,int(t2-t1)))
 
-	if device!=torch.device('cpu'):
-		with torch.cuda.device(device):
-			torch.cuda.empty_cache()
+	#if device!=torch.device('cpu'):
+	#	with torch.cuda.device(device):
+	#		torch.cuda.empty_cache()
 
 	return WAIC, model
 

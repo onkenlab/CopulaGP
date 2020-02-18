@@ -2,8 +2,8 @@ import bvcopula
 
 # elements to select from
 elements = [bvcopula.IndependenceCopula_Likelihood(),
-			bvcopula.GaussianCopula_Likelihood(),
 			bvcopula.FrankCopula_Likelihood(),
+			bvcopula.GaussianCopula_Likelihood(),
 			bvcopula.ClaytonCopula_Likelihood(rotation='0°'),
 			bvcopula.ClaytonCopula_Likelihood(rotation='90°'),
 			bvcopula.ClaytonCopula_Likelihood(rotation='180°'),
@@ -18,4 +18,5 @@ elements = [bvcopula.IndependenceCopula_Likelihood(),
 max_mix = 6
 
 #below this waic data is independent
-waic_threshold = 0.005
+waic_threshold = 0.01
+desperate = 0.0 #if Frank WAIC is below that -- there is nothing in the data

@@ -86,6 +86,9 @@ def add_copula(X: Tensor, Y: Tensor, train_x: Tensor, train_y: Tensor, device: t
 		finally:
 			waics[i] = waic
 			all_important_copulas[i] = important
+		if (el.name=='Frank') & (waics[i]<conf.desperate*X.shape[0]):
+			print('Skip this stage, if Frank Copula works so bad')
+			break
 
 	best_i = np.argmax(waics)
 	best = available[best_i]
@@ -131,6 +134,7 @@ def select_copula_model(X: Tensor, Y: Tensor, device: torch.device,
 
 	exp_name = '{}_{}-{}'.format(exp_pref,name_x,name_y)
 	log_name = '{}/log_{}_{}.txt'.format(path_output,device,exp_name)
+	device = 'cuda:0' #store logs properly, but calculate on an isolated GPU
 	logging.getLogger("matplotlib").setLevel(logging.WARNING)
 	logging.basicConfig(filename=log_name, filemode='w', level=logging.DEBUG, format='%(asctime)s %(message)s')
 
@@ -147,7 +151,7 @@ def select_copula_model(X: Tensor, Y: Tensor, device: torch.device,
 		(likelihoods, waic) = add_copula(X,Y,train_x,train_y,device,mixtures[-1],exp_name,path_output,name_x,name_y)
 		num_elements = len(likelihoods)
 		if _check_history(likelihoods,mixtures): #if nothing changed since last iteration
-			if (waic < conf.waic_threshold*X.shape[0]):
+			if (waic < conf.waic_threshold*X.shape[0]) & (num_elements>1):
 				logging.info('The variables are independent (waic less than {:.3f}).'.format(conf.waic_threshold*X.shape[0]))	
 				mixtures.append([bvcopula.IndependenceCopula_Likelihood()])
 				waics.append(0)
