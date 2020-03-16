@@ -49,6 +49,50 @@ def load_experimental_data(path,animal,day_name,n1,n2):
 	
 	return X, Y
 
+def load_transformed_samples(path,exp_pref):
+    with open("{}/{}_signals.pkl".format(path,exp_pref),'rb') as f:
+        signal_pkl = pkl.load(f)
+    with open("{}/{}_behaviour.pkl".format(path,exp_pref),'rb') as f:
+        behaviour_pkl = pkl.load(f)
+    for s in ['ROIsN','trialStart','maxTrialNum','trials']:
+        assert(np.allclose(signal_pkl[s],behaviour_pkl[s]))
+    #stimulus = (behaviour_pkl['position']/160)%1
+
+    samples = np.zeros((signal_pkl['signals_fissa'].shape[1], #n
+        signal_pkl['signals_fissa'].shape[0]+5),dtype=float) #d
+
+    samples[:,0] = behaviour_pkl['transformed_late_reward']
+    samples[:,1] = behaviour_pkl['transformed_early_reward']
+    samples[:,2] = behaviour_pkl['transformed_early_reward'] + behaviour_pkl['transformed_late_reward']
+    samples[:,3] = behaviour_pkl['transformed_licks']
+    samples[:,4] = behaviour_pkl['transformed_velocity']
+
+    samples[:,5:] = signal_pkl['signals_transformed'].T
+
+    return samples
+
+def load_samples(path,exp_pref):
+    with open("{}/{}_signals.pkl".format(path,exp_pref),'rb') as f:
+        signal_pkl = pkl.load(f)
+    with open("{}/{}_behaviour.pkl".format(path,exp_pref),'rb') as f:
+        behaviour_pkl = pkl.load(f)
+    for s in ['ROIsN','trialStart','maxTrialNum','trials']:
+        assert(np.allclose(signal_pkl[s],behaviour_pkl[s]))
+    #stimulus = (behaviour_pkl['position']/160)%1
+
+    samples = np.zeros((signal_pkl['signals_fissa'].shape[1], #n
+        signal_pkl['signals_fissa'].shape[0]+5),dtype=float) #d
+
+    samples[:,0] = behaviour_pkl['fat_late_reward']
+    samples[:,1] = behaviour_pkl['fat_early_reward']
+    samples[:,2] = behaviour_pkl['fat_early_reward'] + behaviour_pkl['fat_late_reward']
+    samples[:,3] = behaviour_pkl['fat_licks']
+    samples[:,4] = behaviour_pkl['velocity']
+
+    samples[:,5:] = signal_pkl['signals_fissa'].T
+
+    return samples
+
 def get_likelihoods(summary_path,n1,n2):
 	'''
 	Looks up the likelihoods of the best selected model in summary.pkl

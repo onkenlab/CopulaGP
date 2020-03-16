@@ -94,6 +94,9 @@ class SingleParamCopulaBase(Distribution):
     def ppcf(self, samples):
         raise NotImplementedError
 
+    def ccdf(self, samples):
+        raise NotImplementedError
+
     def rsample(self, sample_shape=torch.Size([])):
         shape = self._extended_shape(sample_shape) # now it is theta_size (batch) x sample_size x 2 (event)
         
@@ -161,6 +164,23 @@ class GaussianCopula(SingleParamCopulaBase):
             nrvs = normal.Normal(0,1).icdf(samples)
             vals = normal.Normal(0,1).cdf(nrvs[..., 0] * torch.sqrt(1 - self.theta**2) + 
                                  nrvs[..., 1] * self.theta) 
+        return vals
+
+    def ccdf(self, samples):
+        assert torch.all((self.theta>-1) & ((self.theta<1))) #undefined at the boundary of the interval
+        vals = torch.ones(samples.shape[:-1])*1/2 #for samples on the edge cdf=1/2
+        theta_ = self.theta.expand(vals.shape)
+        # Avoid subtraction of infinities
+        neqz = torch.any(samples > 0.0, axis=-1) & torch.any(samples < 1.0, axis=-1)
+        if self.theta.is_cuda:
+            get_cuda_device = theta_.get_device()
+            nrvs = normal.Normal(torch.zeros(1).cuda(device=get_cuda_device),torch.ones(1).cuda(device=get_cuda_device)).icdf(samples[neqz, :])
+            vals[neqz] = normal.Normal(torch.zeros(1).cuda(device=get_cuda_device),torch.ones(1).cuda(device=get_cuda_device)).cdf( \
+                (nrvs[..., 0] - theta_ * nrvs[..., 1]) / torch.sqrt(1 - theta_**2))[neqz]
+        else:
+            nrvs = normal.Normal(0,1).icdf(samples) #keep it samples size here, to multiply with the right thetas
+            vals[neqz] = normal.Normal(0,1).cdf((nrvs[..., 0] - theta_ * nrvs[..., 1]) 
+                                  / torch.sqrt(1 - theta_**2))[neqz]
         return vals
 
     def log_prob(self, value, safe=False):
@@ -231,6 +251,19 @@ class FrankCopula(SingleParamCopulaBase):
         vals[..., self.theta > conf.Frank_Theta_Flip] = 1. - vals[..., self.theta > conf.Frank_Theta_Flip] # flip for highly positive thetas here
         return torch.clamp(vals,0.,1.) # could be slightly higher than 1 due to numerical errors
 
+    def ccdf(self, samples):
+        theta_ = self.theta.clone()#.abs() # generate everything for small or negative thetas, then flip
+        theta_[self.theta > conf.Frank_Theta_Flip] = -self.theta[self.theta > conf.Frank_Theta_Flip] 
+        theta_ = theta_.expand(samples.shape[:-1]) # prepend with sample dimensions
+        vals = samples[..., 0]
+        samples[...,self.theta>conf.Frank_Theta_Flip,:] = 1 - samples[...,self.theta>conf.Frank_Theta_Flip,:] # flip for highly positive thetas here
+        vals[theta_!=0] = (torch.exp(-theta_ * samples[..., 1]) 
+                * torch.expm1(-theta_ * samples[..., 0]) 
+                / (torch.expm1(-theta_)
+                   + torch.expm1(-theta_ * samples[..., 0])
+                   * torch.expm1(-theta_ * samples[..., 1])))[theta_!=0]
+        return vals
+
     def log_prob(self, value, safe=True):
 
         value[torch.isnan(value)] = 0 # log_prob = -inf
@@ -284,6 +317,17 @@ class ClaytonCopula(SingleParamCopulaBase):
             mask = (thetas_>min_lim) & (unstable_part == float("Inf"))
             vals[mask] = 0. # (inf)^(-1/nonzero_theta) is still something very small
         assert torch.all(vals==vals)
+        return vals
+
+    def ccdf(self, samples):
+        theta_ = self.theta.expand(samples.shape[:-1]) # prepend with sample dimensions
+        vals = samples[..., 0]
+        vals[theta_!=0] = (samples[..., 1]**(-1 - theta_) 
+                                   * (samples[..., 0]**(-theta_) 
+                                      + samples[..., 1]**(-theta_) - 1) 
+                                   ** (-1 - 1 / theta_))[theta_!=0]
+        vals[vals<0] = 0
+        vals[(theta_!=0) & (samples[...,0]==0)] = 0
         return vals
 
     def log_prob(self, value, safe=True):
@@ -346,6 +390,18 @@ class GumbelCopula(SingleParamCopulaBase):
         # assert torch.all(v<1)
         v = torch.clamp(v,0,1) # for theta>10 v is sometimes >1
         return v
+
+    def ccdf(self, samples):
+        vals = torch.zeros(samples.shape[:-1])
+        theta_ = self.theta.expand(samples.shape[:-1]) # prepend with sample dimensions
+
+        x = -samples[...,1].log()
+        y = -samples[...,0].log()
+        h1 = torch.pow(x,theta_) + torch.pow(y,theta_)
+        h2 = 1.0 / theta_
+        vals = torch.exp(x - torch.pow(h1,h2)+ (h2-1)*torch.log(h1) + (theta_ - 1)*torch.log(x)).clamp(0,1)
+
+        return vals
 
     def log_prob(self, value, safe=True):
 
