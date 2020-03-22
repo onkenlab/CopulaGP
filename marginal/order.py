@@ -2,13 +2,8 @@ from scipy.stats import kendalltau
 import numpy as np
 import pickle as pkl
 import sys
-sys.path.insert(0, '/home/nina/LFI/')
-
-def load_samples(path,exp_pref):
-    with open("{}/{}_signals.pkl".format(path,exp_pref),'rb') as f:
-        signal_pkl = pkl.load(f)
-
-    return signal_pkl['signals_fissa'].T
+sys.path.insert(0, '/home/nina/CopulaGP/')
+import utils
 
 def heuristic_element_order(samples):
     '''
@@ -50,11 +45,12 @@ exp_pref = f"{animal}_{day_name}"
 path = '/home/nina/VRData/Processing/pkls'
 path_models = '/home/nina/models'
 
-samples = load_samples(path,exp_pref)
+#samples = utils.load_neurons_only(path,exp_pref) #load only neurons
+samples = utils.load_samples(path,exp_pref)
 
 order = heuristic_element_order(samples)
 
-with open(f"{path_models}/order.pkl","wb") as f:
+with open(f"{path_models}/order_{exp_pref}.pkl","wb") as f:
     pkl.dump(order,f)
 
 #print(order)

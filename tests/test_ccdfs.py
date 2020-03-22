@@ -1,5 +1,5 @@
 # import sys
-# sys.path.append('/home/nina/LFI/')
+# sys.path.append('/home/nina/CopulaGP/')
 import unittest
 
 import torch

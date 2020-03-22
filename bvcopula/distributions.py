@@ -143,6 +143,9 @@ class IndependenceCopula(Distribution):
 
         return samples
 
+    def ccdf(self, samples):
+        return samples[...,0]
+
     def log_prob(self, value):
         return torch.zeros_like(value[...,0])
 
@@ -168,13 +171,13 @@ class GaussianCopula(SingleParamCopulaBase):
 
     def ccdf(self, samples):
         assert torch.all((self.theta>-1) & ((self.theta<1))) #undefined at the boundary of the interval
-        vals = torch.ones(samples.shape[:-1])*1/2 #for samples on the edge cdf=1/2
+        vals = torch.ones_like(samples[...,0])*1/2 #for samples on the edge cdf=1/2
         theta_ = self.theta.expand(vals.shape)
         # Avoid subtraction of infinities
         neqz = torch.any(samples > 0.0, axis=-1) & torch.any(samples < 1.0, axis=-1)
         if self.theta.is_cuda:
             get_cuda_device = theta_.get_device()
-            nrvs = normal.Normal(torch.zeros(1).cuda(device=get_cuda_device),torch.ones(1).cuda(device=get_cuda_device)).icdf(samples[neqz, :])
+            nrvs = normal.Normal(torch.zeros(1).cuda(device=get_cuda_device),torch.ones(1).cuda(device=get_cuda_device)).icdf(samples)
             vals[neqz] = normal.Normal(torch.zeros(1).cuda(device=get_cuda_device),torch.ones(1).cuda(device=get_cuda_device)).cdf( \
                 (nrvs[..., 0] - theta_ * nrvs[..., 1]) / torch.sqrt(1 - theta_**2))[neqz]
         else:
@@ -255,7 +258,7 @@ class FrankCopula(SingleParamCopulaBase):
         theta_ = self.theta.clone()#.abs() # generate everything for small or negative thetas, then flip
         theta_[self.theta > conf.Frank_Theta_Flip] = -self.theta[self.theta > conf.Frank_Theta_Flip] 
         theta_ = theta_.expand(samples.shape[:-1]) # prepend with sample dimensions
-        vals = samples[..., 0]
+        vals = samples[..., 0].clone()
         samples[...,self.theta>conf.Frank_Theta_Flip,:] = 1 - samples[...,self.theta>conf.Frank_Theta_Flip,:] # flip for highly positive thetas here
         vals[theta_!=0] = (torch.exp(-theta_ * samples[..., 1]) 
                 * torch.expm1(-theta_ * samples[..., 0]) 
@@ -321,7 +324,7 @@ class ClaytonCopula(SingleParamCopulaBase):
 
     def ccdf(self, samples):
         theta_ = self.theta.expand(samples.shape[:-1]) # prepend with sample dimensions
-        vals = samples[..., 0]
+        vals = samples[..., 0].clone()
         vals[theta_!=0] = (samples[..., 1]**(-1 - theta_) 
                                    * (samples[..., 0]**(-theta_) 
                                       + samples[..., 1]**(-theta_) - 1) 
@@ -637,25 +640,63 @@ class MixtureCopula(Distribution):
             get_cuda_device = self.theta.get_device()
             samples = samples.cuda(device=get_cuda_device)
 
-        num_thetas = self.theta.shape[0]
-
         assert self.mix.shape[0]==len(self.copulas)
         #assert self.theta_sharing.shape[0]==len(self.copulas)
         #gplink already returns thetas for each copula
         #TODO: avoid returning identical thetas
         
         onehot = torch.distributions.one_hot_categorical.OneHotCategorical(
-            probs=torch.einsum('i...->...i', self.mix)).sample()
+            probs=torch.einsum('i...->...i', self.mix)).sample() # automatically lands on GPU, if mixes are there
         onehot = torch.einsum('...i->i...', onehot) # now copulas x batch
-        onehot = onehot.type(torch.bool)
+        onehot = onehot.type(torch.bool) 
+
         for i,c in enumerate(self.copulas):
             if c.num_thetas == 0:
                 shape = samples[:, onehot[i],...].shape[:-1]
-                samples[:, onehot[i],...] = c(self.theta[self.theta!=self.theta]).sample(shape)
+                samples[..., onehot[i],:] = c(self.theta[self.theta!=self.theta]).sample(shape)
             else:
-                samples[:, onehot[i],...] = c(self.theta[i,onehot[i]], rotation=self.rotations[i]).sample(sample_shape)
+                samples[..., onehot[i],:] = c(self.theta[i,onehot[i]], rotation=self.rotations[i]).sample(sample_shape)
   
-        return samples # sample_size x thetas(batch) x 2 (event)    
+        return samples # sample_size x thetas(batch) x 2 (event) 
+
+    def ccdf(self, samples):
+        '''
+        
+        '''
+        assert self.mix.shape[0]==len(self.copulas)
+        assert self.mix.shape[1]==samples.shape[0] #compare sample dimensions
+
+        vals = torch.zeros_like(samples[...,0])
+
+        for i,c in enumerate(self.copulas):
+            if c.num_thetas == 0:
+                vals += self.mix[i] * samples[...,0]
+            else:
+                vals += self.mix[i] * c(self.theta[i], rotation=self.rotations[i]).ccdf(samples)
+        return vals   
+
+    def make_dependent(self, samples):
+        '''
+        Since ppcf for a mixture is hard to calculate,
+        this function divides the samples into N subsets proportional to self.mix,
+        and then returns ppcf_i(subset_i), where ppcf_i is a ppcf of the i-th copula.
+        '''
+        assert self.mix.shape[0]==len(self.copulas)
+        assert self.mix.shape[1]==samples.shape[0] #compare sample dimensions
+
+        vals = torch.zeros_like(samples[...,0])
+
+        onehot = torch.distributions.one_hot_categorical.OneHotCategorical(
+            probs=torch.einsum('i...->...i', self.mix)).sample()
+        onehot = torch.einsum('...i->i...', onehot) # now copulas x samples
+        onehot = onehot.type(torch.bool)
+
+        for i,c in enumerate(self.copulas):
+            if c.num_thetas == 0:
+                vals[..., onehot[i]] = samples[...,onehot[i],0]
+            else:
+                vals[..., onehot[i]] = c(self.theta[i,onehot[i]], rotation=self.rotations[i]).ppcf(samples[...,onehot[i],:])
+        return vals
 
     def log_prob(self, value, safe=False):
 
