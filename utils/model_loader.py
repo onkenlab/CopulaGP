@@ -1,4 +1,5 @@
 import pickle as pkl
+from bvcopula import IndependenceCopula_Likelihood
 
 def get_likelihoods(summary_path,n1,n2):
 	'''
@@ -19,7 +20,10 @@ def get_likelihoods(summary_path,n1,n2):
 	'''
 	with open(summary_path,'rb') as f:
 		data = pkl.load(f)	
-	return data[n1+5,n2+5][0]
+	if data[n1+5,n2+5] is not None:
+		return data[n1+5,n2+5][0]
+	else:
+		return [IndependenceCopula_Likelihood()]
 
 def get_model(weights_file,likelihoods,device):
 	'''

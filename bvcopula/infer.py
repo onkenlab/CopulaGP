@@ -38,7 +38,7 @@ def _get_theta_sharing(likelihoods, theta_sharing):
 	return theta_sharing, num_fs
 
 def _grid_size(num_copulas):
-	if num_copulas<4:
+	if num_copulas<8:
 		grid_size = conf.grid_size
 	else:
 		grid_size = int(conf.grid_size/(num_copulas/2))

@@ -1,6 +1,26 @@
 import pickle as pkl
 import numpy as np
 
+def standard_loader(path,n1,n2):
+	'''
+	The simplest loader, that expects to get a pkl file
+	as input, with a dictionary containing all variables
+	(Y) and a normalised conditioning variable (X).
+	'''
+	with open(path,"rb") as f:
+		data = pkl.load(f)
+	
+	assert 'X' in data.keys()
+	assert 'Y' in data.keys()
+
+	assert data['X'].shape[0]==data['Y'].shape[0]
+	assert max(n1,n2)<data['Y'].shape[1]
+
+	assert (data['X'].min()>0) & (data['X'].max()<1)
+	assert (data['Y'].min()>0) & (data['Y'].max()<1)
+
+	return data['X'], data['Y'][:,[n1,n2]]
+
 def load_experimental_data(path,animal,day_name,n1,n2):
 	'''
 		Loads experimental data
@@ -37,15 +57,10 @@ def load_experimental_data(path,animal,day_name,n1,n2):
 
 	Y_all = np.array([data1,data2]).T
 	X_all = np.array(behaviour_pkl['position'])#local_time
-
-	rule = (Y_all[:,0]>0) & (Y_all[:,1]>0)  \
-	        & (Y_all[:,0]<1) & (Y_all[:,1]<1)
 	 
-	X = np.reshape(X_all[rule],(-1,1))
-	X[X<0] = 160.+X[X<0]
-	X[X>160] = X[X>160]-160.
-	X = X/160.
-	Y = Y_all[rule]
+	X = (X_all%160)/160
+	Y = (Y_all - Y_all.min(axis=0))/(Y_all.max(axis=0)-Y_all.min(axis=0))*0.998+0.001
+	# constrain all Ys between 0.01 and 0.999
 	
 	return X, Y
 
