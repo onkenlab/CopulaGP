@@ -1,7 +1,7 @@
 import pickle as pkl
 import numpy as np
 
-def standard_loader(path,n1,n2):
+def standard_loader(path,n1=None,n2=None):
 	'''
 	The simplest loader, that expects to get a pkl file
 	as input, with a dictionary containing all variables
@@ -14,12 +14,16 @@ def standard_loader(path,n1,n2):
 	assert 'Y' in data.keys()
 
 	assert data['X'].shape[0]==data['Y'].shape[0]
-	assert max(n1,n2)<data['Y'].shape[1]
 
 	assert (data['X'].min()>0) & (data['X'].max()<1)
 	assert (data['Y'].min()>0) & (data['Y'].max()<1)
 
-	return data['X'], data['Y'][:,[n1,n2]]
+	if n1 is None:
+		return data['X'], data['Y']
+	else:
+		assert n2 is not None
+		assert max(n1,n2)<data['Y'].shape[1]
+		return data['X'], data['Y'][:,[n1,n2]]
 
 def load_experimental_data(path,animal,day_name,n1,n2):
 	'''
@@ -43,12 +47,13 @@ def load_experimental_data(path,animal,day_name,n1,n2):
 			raise ValueError('n is out of range')
 		return data
 
-	with open("{}/{}_{}_signals.pkl".format(path,animal,day_name),'rb') as f:
-	    signal_pkl = pkl.load(f)
-	with open("{}/{}_{}_behaviour.pkl".format(path,animal,day_name),'rb') as f:
-	    behaviour_pkl = pkl.load(f)
+	exp_pref = f"{animal}_{day_name}"
+	with open(f"{path}/{exp_pref}_signals.pkl",'rb') as f:
+		signal_pkl = pkl.load(f)
+	with open(f"{path}/{exp_pref}_behaviour.pkl",'rb') as f:
+		behaviour_pkl = pkl.load(f)
 	for s in ['ROIsN','trialStart','maxTrialNum','trials']:
-	    assert(np.allclose(signal_pkl[s],behaviour_pkl[s]))
+		assert(np.allclose(signal_pkl[s],behaviour_pkl[s]))
 
 	signals = signal_pkl['signals_transformed']
 
