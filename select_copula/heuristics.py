@@ -35,6 +35,8 @@ def select_with_heuristics(X: torch.Tensor, Y: torch.Tensor, device: torch.devic
     logging.getLogger("matplotlib").setLevel(logging.WARNING)
     logging.basicConfig(filename=log_name, filemode='w', level=logging.DEBUG, format='%(asctime)s %(message)s')
 
+    logging.info(f'Selecting {name_x}-{name_y} on {device}')
+
     #convert numpy data to tensors (optionally on GPU)
     if train_x is None:
         train_x = torch.tensor(X).float().to(device=device)
