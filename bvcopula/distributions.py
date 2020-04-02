@@ -174,7 +174,7 @@ class GaussianCopula(SingleParamCopulaBase):
         vals = torch.ones_like(samples[...,0])*1/2 #for samples on the edge cdf=1/2
         theta_ = self.theta.expand(vals.shape)
         # Avoid subtraction of infinities
-        neqz = torch.any(samples > 0.0, axis=-1) & torch.any(samples < 1.0, axis=-1)
+        neqz = torch.any(samples > 0.0, dim=-1) & torch.any(samples < 1.0, dim=-1)
         if self.theta.is_cuda:
             get_cuda_device = theta_.get_device()
             nrvs = normal.Normal(torch.zeros(1).cuda(device=get_cuda_device),torch.ones(1).cuda(device=get_cuda_device)).icdf(samples)

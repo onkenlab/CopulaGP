@@ -5,15 +5,9 @@ import bvcopula
 from utils import get_copula_name_string, Plot_Fit
 import os
 
-def cov(x,y):
-    return torch.mean((x-x.mean())*(y-y.mean()))
-    
-def pearson(x,y):
-    return cov(x,y)/(x.std()*y.std())
-
 def evaluate(model,device):
     # define uniform test set (optionally on GPU)
-    test_x = torch.linspace(0,1,100).cuda(device=device)
+    test_x = torch.linspace(0,1,100).to(device=device)
     with torch.no_grad():
         output = model(test_x)
     gplink = model.likelihood.gplink_function
@@ -56,7 +50,8 @@ def select_with_heuristics(X: torch.Tensor, Y: torch.Tensor, device: torch.devic
     waic, _ = bvcopula.infer([bvcopula.FrankCopula_Likelihood()],train_x,train_y,device=device)
 
     if waic<conf.waic_threshold*X.shape[0]:
-        return ([bvcopula.IndependenceCopula_Likelihood()], 0)
+        logging.info("These variables are independent")
+        return ([bvcopula.IndependenceCopula_Likelihood()], torch.tensor([0]))
     else:
         (waic_gumbels, model_gumbels) = bvcopula.infer(conf.gumbel_likelihoods,train_x,train_y,device=device)
         (waic_claytons, model_claytons) = bvcopula.infer(conf.clayton_likelihoods,train_x,train_y,device=device)
@@ -90,7 +85,7 @@ def select_with_heuristics(X: torch.Tensor, Y: torch.Tensor, device: torch.devic
         count_swaps=0
         for i in torch.arange(4)[assymetric_part]:
             likelihoods = symmetric_likelihoods.copy()
-            if (count_swaps==0) and (i==torch.sum(assymetric_part)-1):
+            if (count_swaps==0) and (i==torch.sum(assymetric_part).cpu()-1):
                 logging.info('No need to swap the last one, as we already tried that model')
             else:
                 for j in torch.arange(4)[assymetric_part]:
