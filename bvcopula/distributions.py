@@ -680,22 +680,39 @@ class MixtureCopula(Distribution):
         Since ppcf for a mixture is hard to calculate,
         this function divides the samples into N subsets proportional to self.mix,
         and then returns ppcf_i(subset_i), where ppcf_i is a ppcf of the i-th copula.
+        Inputs:
+            Copula with thetas/mixes of shape copulas x inputs
+            Samples of shape: inputs x sample_size (any number of dimensions)
         '''
+        assert torch.all(samples==samples)
         assert self.mix.shape[0]==len(self.copulas)
-        assert self.mix.shape[1]==samples.shape[0] #compare sample dimensions
-
+        assert samples.shape[-1] == 2 #should be pairs
+        assert self.mix.shape[1]==samples.shape[0] #compare the number of inputs (X)
+        # sample size (samples[1:-1]) does not matter 
+        if samples.dim()>2:
+            shape = samples.shape[1:-1]+self.mix.shape
+            theta_ = self.theta.expand(shape)
+            mix_ = self.mix.expand(shape) # sample size x copulas x inputs
+            theta_= torch.einsum('...ij->ij...', theta_) # copulas x inputs x sample_size
+            mix_= torch.einsum('...ij->ij...', mix_)
+        else:
+            theta_ = self.theta
+            mix_ = self.mix
+        
         vals = torch.zeros_like(samples[...,0])
 
         onehot = torch.distributions.one_hot_categorical.OneHotCategorical(
-            probs=torch.einsum('i...->...i', self.mix)).sample()
-        onehot = torch.einsum('...i->i...', onehot) # now copulas x samples
+            probs=torch.einsum('i...->...i', mix_)).sample()
+        onehot = torch.einsum('...i->i...', onehot) # back to copulas x inputs x samples_size
         onehot = onehot.type(torch.bool)
-
+        
         for i,c in enumerate(self.copulas):
             if c.num_thetas == 0:
-                vals[..., onehot[i]] = samples[...,onehot[i],0]
+                vals[onehot[i]] = samples[...,0][onehot[i]]
             else:
-                vals[..., onehot[i]] = c(self.theta[i,onehot[i]], rotation=self.rotations[i]).ppcf(samples[...,onehot[i],:])
+                vals[onehot[i]] = c(theta_[i,...][onehot[i]], 
+                                               rotation=self.rotations[i]).ppcf(
+                                                samples[onehot[i],:])
         return vals
 
     def log_prob(self, value, safe=False):
