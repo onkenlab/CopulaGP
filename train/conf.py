@@ -1,3 +1,3 @@
-path2code = '/disk/scratch/CopulaGP/'
-path2data = '/disk/scratch_fast/ninas_dataset'
-path2outputs = '/disk/scratch/nkudryas/outputs'
+path2code = '/home/nina/CopulaGP/'
+path2data = '/home/nina/CopulaGP/synthetic_data'
+path2outputs = '/home/nina/CopulaGP/synthetic_data/outputs'
