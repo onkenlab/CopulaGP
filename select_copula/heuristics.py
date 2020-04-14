@@ -81,11 +81,13 @@ def select_with_heuristics(X: torch.Tensor, Y: torch.Tensor, device: torch.devic
                 which_follow = important_copulas(model_gumbels,device)
                 likelihoods_leader = conf.clayton_likelihoods[2:]
                 likelihoods_follow = conf.gumbel_likelihoods[2:]
+                plot_n_save(model_claytons)
             else:
                 which_leader = important_copulas(model_gumbels,device)
                 which_follow = important_copulas(model_claytons,device)
                 likelihoods_leader = conf.gumbel_likelihoods[2:]
                 likelihoods_follow = conf.clayton_likelihoods[2:]
+                plot_n_save(model_gumbels)
 
             logging.info(which_leader)
             logging.info(which_follow)
@@ -103,9 +105,9 @@ def select_with_heuristics(X: torch.Tensor, Y: torch.Tensor, device: torch.devic
             #print("Symmetric: "+get_copula_name_string(symmetric_likelihoods))
             best_likelihoods = conf.clayton_likelihoods[:2]+likelihoods_leader.copy()
             count_swaps=0
-            for i in torch.arange(4)[assymetric_part]:
+            for iter,i in enumerate(torch.arange(4)[assymetric_part]):
                 likelihoods = symmetric_likelihoods.copy()
-                if (count_swaps==0) and (i==torch.sum(assymetric_part).cpu()-1):
+                if (count_swaps==0) and (iter==torch.sum(assymetric_part).cpu()-1):
                     logging.info('No need to swap the last one, as we already tried that model')
                 else:
                     for j in torch.arange(4)[assymetric_part]:
