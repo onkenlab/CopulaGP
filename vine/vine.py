@@ -27,7 +27,7 @@ class CVine():
                 assert self.inputs.shape[0]== model.theta.shape[-1]	#check the number of inputs
                 assert (model.__class__ == bvcopula.distributions.MixtureCopula)
         self.layers = layers
-        # ADD CHECK FOR DEVICE FROM MODELS
+        # ADD CHECK ON WHICH DEVICE EACH MODEL IS?
         self.device = device
         
     @staticmethod
