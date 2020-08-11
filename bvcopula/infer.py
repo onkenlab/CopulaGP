@@ -6,7 +6,7 @@ from matplotlib import pyplot as plt
 import logging
 
 import bvcopula
-import utils
+from utils import get_copula_name_string, VariationalELBO
 from . import conf
 
 def plot_loss(filename, losses, rbf, means):
@@ -55,7 +55,7 @@ def infer(likelihoods, train_x: Tensor, train_y: Tensor, device: torch.device,
 		with torch.cuda.device(device):
 			torch.cuda.empty_cache()
 
-	logging.info('Trying {}'.format(utils.get_copula_name_string(likelihoods)))
+	logging.info('Trying {}'.format(get_copula_name_string(likelihoods)))
 
 	# define the model (optionally on GPU)
 	model = bvcopula.Mixed_GPInferenceModel(
@@ -73,7 +73,7 @@ def infer(likelihoods, train_x: Tensor, train_y: Tensor, device: torch.device,
 
 	# train the model
 
-	mll = utils.VariationalELBO(model.likelihood, model, torch.ones_like(train_x.squeeze()), 
+	mll = VariationalELBO(model.likelihood, model, torch.ones_like(train_x.squeeze()), 
                             num_data=train_y.size(0), particles=torch.Size([0]), combine_terms=True)
 
 	losses = torch.zeros(conf.max_num_iter, device=device)
@@ -166,7 +166,7 @@ def load_model(filename, likelihoods, device: torch.device,
 
 	theta_sharing, num_fs = _get_theta_sharing(likelihoods, theta_sharing)
 
-	logging.info('Loading {}'.format(utils.get_copula_name_string(likelihoods)))
+	logging.info('Loading {}'.format(get_copula_name_string(likelihoods)))
 
 	# define the model (optionally on GPU)
 	model = bvcopula.Mixed_GPInferenceModel(
