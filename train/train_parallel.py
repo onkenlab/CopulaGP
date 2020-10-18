@@ -4,73 +4,78 @@ import numpy as np
 import sys
 import multiprocessing
 import os
-from torch import device
+from torch import device, tensor
 from . import conf
 sys.path.insert(0, conf.path2code)
 
 import utils
 import select_copula
 import train
+from bvcopula import MixtureCopula_Likelihood
 
-gpu_id_list = range(4)
-unique_id_list = np.random.randint(0,10000,len(gpu_id_list)) #TODO: make truely unique
-#[i//2 for i in range(8*2)]  # 2 workers on each GPU
-
-def worker(X, Y0, Ys, idxs, NN, progress, exp_pref, layer):
+def worker(X, Y0, Y1, idxs, layer):
 	# get unique gpu id for cpu id
 	cpu_name = multiprocessing.current_process().name
 	cpu_id = (int(cpu_name[cpu_name.find('-') + 1:]) - 1)%len(gpu_id_list) # ids will be 8 consequent numbers
 	gpu_id = gpu_id_list[cpu_id]
 
-	out_dir = f'{conf.path2outputs}/{exp_pref}/layer{layer}'
 	device_str = f'cuda:{gpu_id}'
-
-	print(f'Start a new batch ({progress}) on {device_str}')
 
 	unique_id = unique_id_list[cpu_id]
 
-	for n,Y1 in zip(idxs,Ys.T):
+	Y = np.stack([Y1,Y0]).T # order!
+	n0, n1, n_out = idxs[0] + layer, idxs[1]+layer, idxs[1]-1 # substitute this to get other (not C) vines
 
-		Y = np.stack([Y1,Y0]).T # order!
+	train_x = tensor(X).float().to(device=device(device_str))
+	train_y = tensor(Y).float().to(device=device(device_str))
 
-		print(f'Selecting {layer}-{n+layer} on {device_str}')
-		try:
-			t_start = time.time()
-			# (likelihoods, waic) = select_copula.select_copula_model(X,Y,device(device_str),exp_pref,out_dir,layer,n+layer)
-			(likelihoods, waic) = select_copula.select_with_heuristics(X,Y,device(device_str),exp_pref,out_dir,layer,n+layer)
-			t_end = time.time()
-			print(f'Selection took {int((t_end-t_start)/60)} min')
-		except RuntimeError as error:
-			print(error)
-		finally:
-			if NN!=-1:
-				print(utils.get_copula_name_string(likelihoods),waic)
-				# save textual info into model list
-				with open(out_dir+'_model_list.txt','a') as f:
-					f.write(f"{layer}-{n+layer} {utils.get_copula_name_string(likelihoods)}\t{waic:.4f}\t{int(t_end-t_start)} sec\n")
-				
-				# save the layer
-				results_file = f"{out_dir}_{unique_id}_models.pkl"
-				if os.path.exists(results_file):
-					with open(results_file,'rb') as f:
-						results = pkl.load(f)  
-				else:
-					results = np.empty(NN,dtype=object)
+	print(f'Selecting {n0}-{n1} on {device_str}')
+	try:
+		t_start = time.time()
+		# (likelihoods, waic) = select_copula.select_copula_model(X,Y,device(device_str),exp_pref,out_dir,layer,n+layer)
+		(likelihoods, waic) = select_copula.select_light(X,Y,device(device_str),
+							exp_pref,out_dir,n0,n1,train_x=train_x,train_y=train_y)
+		t_end = time.time()
+		print(f'Selection took {int((t_end-t_start)/60)} min')
+	except RuntimeError as error:
+		print(error)
+		# logging.error(error, exc_info=True)
+		return -1
+	finally:
+		print(f"{n0}-{n1}",utils.get_copula_name_string(likelihoods),waic)
+		# save textual info into model list
+		with open(out_dir+'_model_list.txt','a') as f:
+			f.write(f"{n0}-{n1} {utils.get_copula_name_string(likelihoods)}\t{waic:.4f}\t{int(t_end-t_start)} sec\n")
 
-				assert (results[n-1]==None)
-				results[n-1] = [likelihoods,utils.get_copula_name_string(likelihoods),waic,int(t_end-t_start)]
+		mix_lik = MixtureCopula_Likelihood(likelihoods)
+		dump = mix_lik.serialize()	
 
-				with open(results_file,'wb') as f:
-					pkl.dump(results,f)   
-			else:
-				results_file = f"{out_dir}/pair_model.pkl"
-				with open(results_file,'wb') as f:
-					results = [likelihoods,utils.get_copula_name_string(likelihoods),waic,int(t_end-t_start)]
-					pkl.dump(results,f)   
+		if utils.get_copula_name_string(likelihoods)!='Independence':
+			weights_file = f"{out_dir}/model_{exp_pref}_{n0}-{n1}.pth"
+			model = utils.get_model(weights_file, likelihoods, device(device_str))
+			copula = model.marginalize(train_x)
+			y = copula.ccdf(train_y).cpu().numpy()
+		else:
+			y = Y1
 
-	return 0
+		return (dump, y)
 
-def train_next_layer(exp_pref, layer, batch = 1):
+# def setup(x, y, z):
+#     """
+#     	Sets up the worker processes of the pool. 
+#     """
+#     global exp_pref
+#     exp_pref = Adder()
+
+def train_next_layer(X, Y, exp, layer, gpus):
+
+	global exp_pref, out_dir
+	exp_pref = exp
+	out_dir = f'{conf.path2outputs}/{exp_pref}/layer{layer}'
+
+	global gpu_id_list, unique_id_list
+	gpu_id_list = gpus
+	unique_id_list = np.random.randint(0,10000,len(gpu_id_list)) #TODO: make truely unique
 
 	if layer==0:
 		try:
@@ -79,35 +84,29 @@ def train_next_layer(exp_pref, layer, batch = 1):
 			print(f"Error:{error}")
 
 	try:
-		os.mkdir(f'{conf.path2outputs}/{exp_pref}/layer{layer}')
+		os.mkdir(out_dir)
 	except FileExistsError as error:
 		print(f"Error:{error}")
 
-	pool = multiprocessing.Pool(len(gpu_id_list))
-
-	X,Y = utils.standard_loader(f"{conf.path2data}/{exp_pref}/{exp_pref}_layer{layer}.pkl")
-	#Y = Y0[...,1:]
-	#print(Y0.shape,Y.shape)
 	NN = Y.shape[-1]-1
 
-	# batch = int(np.ceil(NN/len(gpu_id_list)/repeats))
+	results = np.empty(NN,dtype=object)
+	pool = multiprocessing.Pool(len(gpu_id_list))
+		# initializer=setup, initargs=["some arg", "another", 2])
 
-	print(f"Batch size: {batch}")
-
-	list_idx = np.arange(1,NN+1)
-	resid = len(list_idx)%batch
-	if resid!=0:
-		list_idx = np.concatenate([list_idx,np.zeros(batch-resid)]).astype('int')
-	batches = np.reshape(list_idx,(batch,-1)).T
-
-	for i,b in enumerate(batches):
-		res = pool.apply_async(worker, (X, Y[:,0], Y[:,b[b!=0]], b[b!=0], NN, f"{i+1}/{len(batches)}", exp_pref, layer, ))
-
-	# for 3plets
-	if layer == 1:
-		X,Y = utils.standard_loader(f"{conf.path2data}/{exp_pref}/{exp_pref}_layer0.pkl")
-		res = pool.apply_async(worker, (X, Y[:,2], Y[:,1].reshape(-1,1), [-1], -1, f"{i+1}/{len(batches)}", exp_pref, layer, ))
+	for i in np.arange(1,NN+1): 
+		results[i-1] = pool.apply_async(worker, (X, Y[:,0], Y[:,i], [0,i],  layer, ))
 
 	pool.close()
 	pool.join()  # block at this line until all processes are done
 	print(f"Layer {layer} completed")
+
+	models, Y_next = [], []
+	for result in results:
+		m, y = result.get()
+		models.append(m)
+		Y_next.append(y)
+
+	Y_next = np.array(Y_next).T
+
+	return models, Y_next

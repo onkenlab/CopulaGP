@@ -1,21 +1,42 @@
 import torch
 import bvcopula
 
+# class VineGP():
+#     '''
+#     This is a data class for all regular vines
+#     '''
+#     def __init__(self):
+#         self.trees = []
+
+#     def serialize(self):
+#         return data
+
+#     def deserialize(self, data):
+#         self.trees = ...(data)
+
+#     def sample(self):
+#         # go through the trees and do smth
+
+#     def create_cvine(self, inputs, device=torch.device('cpu')):
+#         static_trees = self.sample() # get copula models with no uncertainty in parameters
+#         return CVine(static_trees,inputs,device=device)
+
 class CVine():
     '''
     This class represents copula C-Vine
-    Attributes
-    ----------
-    N: int
-        Number of variables
-    inputs: int
-        Input points
-    layers:
-        A list of layers. Each layer should contain N-1-i
-        MixtureCopula models, where i is the layer's number.
-        
     '''
     def __init__(self, layers, inputs, device=torch.device('cpu')):
+        '''
+        Attributes
+        ----------
+        N: int
+            Number of variables
+        inputs: int
+            Input points
+        layers:
+            A list of layers. Each layer should contain N-1-i
+            MixtureCopula models, where i is the layer's number.
+        '''
         super(CVine, self).__init__()
         # for N variables there must be N-1 layers
         self.N = len(layers) + 1

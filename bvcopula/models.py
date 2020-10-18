@@ -70,6 +70,7 @@ class Pair_CopulaGP():
             grid_bounds=(0, 1), prior_rbf_length=0.5, grid_size=grid_size).to(device=device).float()
 
         self.__device = device
+        self.__particles = 50
 
     @property
     def gp_model(self):
@@ -87,3 +88,28 @@ class Pair_CopulaGP():
     def device(self):
         return self.__device
     #TODO: mb add setter for device, that relocates all parts of the model?
+    #TODO: particle number setter
+
+    def marginalize(self,X: torch.Tensor):
+        '''
+        Marginalizes GP variable f out
+        To do this, samples N samples from GP.
+        For each input point, uses one of those N samples
+        to parameterize a copula.
+        Parameters
+        ----------
+        X: Tensor
+            inputs
+        Returns
+        -------
+        copula: MixtureCopula
+            copula defined on X with f 'integrated' out
+        '''
+
+        with torch.no_grad():
+            f = self.__gp_model(X).rsample(torch.Size([self.__particles])) #TODO particle num to conf
+        f = torch.einsum('i...->...i', f)
+        onehot = torch.rand(f.shape,device=self.__device).argsort(dim = -1) == 0
+        f_samples = f[onehot].reshape(f.shape[:-1])
+
+        return self.__likelihood.get_copula(f_samples) 
