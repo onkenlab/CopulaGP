@@ -172,7 +172,7 @@ class MixtureCopula_Likelihood(Likelihood):
         return copula_names
 
     @classmethod
-    def deserialize(cls,lik_list):
+    def deserialize(cls,lik_list, just_likelihoods = False):
         allowed_likelihoods = [IndependenceCopula_Likelihood,
                                 GaussianCopula_Likelihood,
                                 FrankCopula_Likelihood,
@@ -191,7 +191,10 @@ class MixtureCopula_Likelihood(Likelihood):
             if inst.isrotatable:
                 inst.rotation=lik[1]
             likelihoods.append(inst)
-        return cls(likelihoods)
+        if just_likelihoods:
+            return likelihoods
+        else:
+            return cls(likelihoods)
 
     def WAIC_(self, gp_distr: MultivariateNormal, target: Tensor, combine_terms=True):
         '''

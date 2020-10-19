@@ -4,16 +4,17 @@ import numpy as np
 import sys
 import multiprocessing
 import os
-from torch import device, tensor
+from torch import device, tensor, load
 from . import conf
 sys.path.insert(0, conf.path2code)
 
-import utils
+from utils import get_copula_name_string
 import select_copula
 import train
-from bvcopula import MixtureCopula_Likelihood
+import bvcopula
+from select_copula import conf as conf_select
 
-def worker(X, Y0, Y1, idxs, layer):
+def worker(X, Y0, Y1, idxs, layer, gauss=False):
 	# get unique gpu id for cpu id
 	cpu_name = multiprocessing.current_process().name
 	cpu_id = (int(cpu_name[cpu_name.find('-') + 1:]) - 1)%len(gpu_id_list) # ids will be 8 consequent numbers
@@ -32,9 +33,16 @@ def worker(X, Y0, Y1, idxs, layer):
 	print(f'Selecting {n0}-{n1} on {device_str}')
 	try:
 		t_start = time.time()
-		# (likelihoods, waic) = select_copula.select_copula_model(X,Y,device(device_str),exp_pref,out_dir,layer,n+layer)
-		(likelihoods, waic) = select_copula.select_light(X,Y,device(device_str),
+		if gauss:
+			likelihoods = [bvcopula.GaussianCopula_Likelihood()]
+			waic, model = bvcopula.infer(likelihoods,train_x,train_y,device=device(device_str)) 
+			waic = waic.item()
+			if waic>conf_select.waic_threshold:
+				likelihoods = [bvcopula.IndependenceCopula_Likelihood()]
+		else:
+			(likelihoods, waic) = select_copula.select_light(X,Y,device(device_str),
 							exp_pref,out_dir,n0,n1,train_x=train_x,train_y=train_y)
+			# (likelihoods, waic) = select_copula.select_copula_model(X,Y,device(device_str),exp_pref,out_dir,layer,n+layer)
 		t_end = time.time()
 		print(f'Selection took {int((t_end-t_start)/60)} min')
 	except RuntimeError as error:
@@ -42,32 +50,37 @@ def worker(X, Y0, Y1, idxs, layer):
 		# logging.error(error, exc_info=True)
 		return -1
 	finally:
-		print(f"{n0}-{n1}",utils.get_copula_name_string(likelihoods),waic)
+		print(f"{n0}-{n1}",get_copula_name_string(likelihoods),waic)
 		# save textual info into model list
 		with open(out_dir+'_model_list.txt','a') as f:
-			f.write(f"{n0}-{n1} {utils.get_copula_name_string(likelihoods)}\t{waic:.4f}\t{int(t_end-t_start)} sec\n")
+			f.write(f"{n0}-{n1} {get_copula_name_string(likelihoods)}\t{waic:.4f}\t{int(t_end-t_start)} sec\n")
 
-		mix_lik = MixtureCopula_Likelihood(likelihoods)
-		dump = mix_lik.serialize()	
-
-		if utils.get_copula_name_string(likelihoods)!='Independence':
-			weights_file = f"{out_dir}/model_{exp_pref}_{n0}-{n1}.pth"
-			model = utils.get_model(weights_file, likelihoods, device(device_str))
-			copula = model.marginalize(train_x)
+		if get_copula_name_string(likelihoods)!='Independence':
+			if not gauss:
+				# serialize the mixture model 
+				mix_lik = bvcopula.MixtureCopula_Likelihood(likelihoods)
+				bvcopulas = mix_lik.serialize()	
+				# load weights
+				weights_file = f"{out_dir}/model_{exp_pref}_{n0}-{n1}.pth"
+				weights = load(weights_file, map_location="cpu")
+				# organise model + weights in a data store object
+				store = bvcopula.Pair_CopulaGP_data(bvcopulas, weights)
+				# define the model (optionally on GPU)
+				model = store.model_init(device(device_str))
+			else:
+				# trained model is still available, just serialize
+				store = model.cpu().serialize()
+			model.gp_model.eval()
+			copula = model.marginalize(train_x) # marginalize the GP
 			y = copula.ccdf(train_y).cpu().numpy()
 		else:
+			store = bvcopula.Pair_CopulaGP_data([['Independence',None]], None)
 			y = Y1
 
-		return (dump, y)
+		return (store, waic, y)
 
-# def setup(x, y, z):
-#     """
-#     	Sets up the worker processes of the pool. 
-#     """
-#     global exp_pref
-#     exp_pref = Adder()
-
-def train_next_layer(X, Y, exp, layer, gpus):
+def train_next_tree(X: np.ndarray, Y: np.ndarray, 
+	exp: str, layer: int, gpus: list, gauss=False):
 
 	global exp_pref, out_dir
 	exp_pref = exp
@@ -92,21 +105,21 @@ def train_next_layer(X, Y, exp, layer, gpus):
 
 	results = np.empty(NN,dtype=object)
 	pool = multiprocessing.Pool(len(gpu_id_list))
-		# initializer=setup, initargs=["some arg", "another", 2])
 
 	for i in np.arange(1,NN+1): 
-		results[i-1] = pool.apply_async(worker, (X, Y[:,0], Y[:,i], [0,i],  layer, ))
+		results[i-1] = pool.apply_async(worker, (X, Y[:,0], Y[:,i], [0,i],  layer, gauss, ))
 
 	pool.close()
 	pool.join()  # block at this line until all processes are done
 	print(f"Layer {layer} completed")
 
-	models, Y_next = [], []
+	models, waics, Y_next = [], [], []
 	for result in results:
-		m, y = result.get()
+		m, w, y = result.get()
 		models.append(m)
+		waics.append(w)
 		Y_next.append(y)
 
 	Y_next = np.array(Y_next).T
 
-	return models, Y_next
+	return models, waics, Y_next
