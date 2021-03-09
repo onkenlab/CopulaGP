@@ -90,7 +90,7 @@ def Plot_MixModel_Param(ax: list, model,
 
 def Plot_MixModel_Param_MCMC(ax: list, model,
     test_x: Tensor, x : Tensor,
-    rho=None,title='',particles=200):
+    rho=None,title='',particles=200, normalized_thetas=True):
     '''
         Plot Thetas and Mixing parameters of a trained GP-Copula model.
         MCMC_version
@@ -132,7 +132,7 @@ def Plot_MixModel_Param_MCMC(ax: list, model,
     model.gp_model.eval()
     with no_grad():
         output = model.gp_model(test_x)
-    thetas, mixes = model.gplink(output.rsample(Size([particles])), normalized_thetas=True)
+    thetas, mixes = model.gplink(output.rsample(Size([particles])), normalized_thetas=normalized_thetas)
     #MC sampling is better here, at least for mixing, since gplink function is non-monotonic for them
 
     likelihoods = model.likelihood.likelihoods
