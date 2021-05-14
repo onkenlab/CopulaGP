@@ -47,7 +47,7 @@ def worker(X, Y0, Y1, idxs, layer, gauss=False):
 		# logging.error(error, exc_info=True)
 		return -1
 	finally:
-		print(f"{n0}-{n1} {store.name_string} {waic:.4} took {int((t_end-t_start)/60)} min")
+		print(f"{n0}-{n1} {store.name_string} {waic:.4} took {int((t_end-t_start))} sec")
 		# save textual info into model list
 		with open(out_dir+'_model_list.txt','a') as f:
 			f.write(f"{n0}-{n1} {store.name_string}\t{waic:.4f}\t{int(t_end-t_start)} sec\n")

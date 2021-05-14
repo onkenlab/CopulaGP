@@ -1,7 +1,7 @@
 path2code = '/home/nina/CopulaGP/'
 # Real
-path2data = '/home/nina/CopulaGP/datasets'
-path2outputs = '/home/nina/CopulaGP/out'
+path2data = '/home/nina/VRData/td-alignment/outputs'#'/home/nina/CopulaGP/datasets'
+path2outputs = path2data#'/home/nina/CopulaGP/out'
 # Synthetic
 # path2data = '/home/nina/CopulaGP/examples/shuttle'
 # path2outputs = f'{path2data}/outputs'

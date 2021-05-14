@@ -21,7 +21,7 @@ if __name__ == "__main__":
 	path_models = lambda layer: f"{conf.path2outputs}/{args.exp}{g}_models_layer{layer}.pkl"
 	path_final = f"{conf.path2outputs}/{args.exp}{g}_trained.pkl"
 
-	gpus = [0,1]
+	gpus = [0]
 	start = time.time()
 	result = train_vine(args.exp, path_data, path_models, path_final,
 		layers_max=args.layers,start=args.start,gauss=args.gauss,
